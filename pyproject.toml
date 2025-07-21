@@ -1,0 +1,16 @@
+[project]
+name = "piper"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "kaggle>=1.7.4.5",
+    "luigi>=3.6.0",
+    "opencv-python>=4.12.0.88",
+    "pillow>=11.3.0",
+]
+
+[logging.output]
+log_to_console = true
+log_to_file = false

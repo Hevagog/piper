@@ -39,6 +39,8 @@ def set_up_dataset(
     target_height: int = 224,
     base_data_dir: str = "data",
     num_workers: int = 8,
+    scheduler_host: str = "localhost",
+    scheduler_port: int = 8082,
 ):
     """
     Sets up the global configuration and runs the Luigi pipeline.
@@ -49,6 +51,8 @@ def set_up_dataset(
         target_height (int, optional): Target height for image resizing. Defaults to 224.
         base_data_dir (str, optional): Base directory for data storage. Defaults to "data".
         num_workers (int, optional): Number of workers for parallel processing. Defaults to 8.
+        scheduler_host (str, optional): Luigi scheduler host. Defaults to "localhost".
+        scheduler_port (int, optional): Luigi scheduler port. Defaults to 8082.
 
     Raises:
         ValueError: If the Kaggle URL format is invalid.
@@ -58,6 +62,7 @@ def set_up_dataset(
     except ValueError:
         raise ValueError("Invalid Kaggle URL format. Expected 'owner/dataset'.")
 
+    # Set global configuration
     GlobalConfig.target_width = target_width
     GlobalConfig.target_height = target_height
     GlobalConfig.base_data_dir = base_data_dir
@@ -65,7 +70,15 @@ def set_up_dataset(
     GlobalConfig.kaggle_dataset_name = dataset_name
 
     luigi.run(
-        ["SparkAugmentImages", "--local-scheduler", "--workers", str(num_workers)]
+        [
+            "SparkAugmentImages",
+            "--scheduler-host",
+            scheduler_host,
+            "--scheduler-port",
+            str(scheduler_port),
+            "--workers",
+            str(num_workers),
+        ]
     )
 
 

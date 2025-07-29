@@ -281,9 +281,27 @@ class SparkAugmentImages(luigi.Task):
         """
         Launches a PySpark job for distributed image processing.
         """
+
+        # Create a zip archive of the 'piper' package to be sent to Spark workers
+        package_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+        package_name = os.path.basename(package_root)
+        archive_path = os.path.join(
+            os.path.dirname(package_root), f"{package_name}.zip"
+        )
+
+        self._logger.info(f"Creating archive of {package_root} at {archive_path}")
+        shutil.make_archive(
+            archive_path.replace(".zip", ""),
+            "zip",
+            root_dir=os.path.dirname(package_root),
+            base_dir=package_name,
+        )
+
         spark_script = os.path.join(os.path.dirname(__file__), "data_augment.py")
         cmd = [
             "spark-submit",
+            "--py-files",
+            archive_path,
             spark_script,
             "--input_dir",
             GlobalConfig().raw_data_dir,
@@ -295,15 +313,21 @@ class SparkAugmentImages(luigi.Task):
             str(GlobalConfig().target_height),
         ]
         self._logger.info(f"Launching Spark job: {' '.join(cmd)}")
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        if result.returncode != 0:
-            error_message = result.stderr.strip() if result.stderr else "Unknown error"
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            self._logger.info("Spark job completed successfully.")
+            self._logger.debug(f"Spark job output: {result.stdout.strip()}")
+            with self.output().open("w") as f:
+                f.write("spark_augment_complete\n")
+        except subprocess.CalledProcessError as e:
+            error_message = e.stderr.strip() if e.stderr else "Unknown error"
             self._logger.error(f"Spark job failed: {error_message}")
-            self._logger.debug(f"Full stdout: {result.stdout.strip()}")
+            self._logger.debug(f"Full stdout: {e.stdout.strip()}")
             raise RuntimeError(f"Spark job failed: {error_message}")
-        self._logger.info("Spark job completed successfully.")
-        with self.output().open("w") as f:
-            f.write("spark_augment_complete\n")
+        finally:
+            if os.path.exists(archive_path):
+                os.remove(archive_path)
+                self._logger.info(f"Removed temporary archive: {archive_path}")
 
 
 @requires(ListRawImages)

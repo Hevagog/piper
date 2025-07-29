@@ -1,0 +1,12 @@
+[project]
+name = "piper-logger"
+version = "0.1.0"
+authors = [
+    { name="Example Author", email="author@example.com" },
+]
+description = "A logger package for the piper project"
+requires-python = ">=3.8"
+
+[logging.output]
+log_to_console = true
+log_to_file = false

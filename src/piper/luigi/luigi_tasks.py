@@ -7,7 +7,7 @@ from kaggle.api.kaggle_api_extended import KaggleApi
 import cv2
 
 from piper.logger import get_logger
-from piper.constants import IMAGE_FORMATS
+from piper.utils.constants import IMAGE_FORMATS
 import shutil
 
 

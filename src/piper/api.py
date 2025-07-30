@@ -1,1 +1,1 @@
-from piper.management import set_up_dataset
+from src.piper.luigi import set_up_dataset

@@ -6,7 +6,7 @@ import numpy as np
 from random import randint, seed
 
 from piper.logger import get_logger
-from piper.management.models import AugmentationType
+from piper.utils.models import AugmentationType
 
 
 def augment_image(img, augmentations: AugmentationType, seed_value: int = 42):

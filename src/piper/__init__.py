@@ -1,5 +1,5 @@
 _HARD_DEPENDENCIES = [
-    ("luigi", "luigi"),
+    # ("luigi", "luigi"),
     ("kaggle.api.kaggle_api_extended", "kaggle"),
     ("PIL", "Pillow"),
 ]

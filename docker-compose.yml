@@ -1,0 +1,45 @@
+name: piper-dev
+
+services:
+  base:
+    build:
+      context: .
+      dockerfile: docker/base.Dockerfile
+    image: piper-base:latest
+    env_file:
+      - ".env"
+
+  luigi-scheduler:
+    build:
+      context: .
+      dockerfile: docker/luigi-scheduler.Dockerfile
+    image: piper-scheduler:latest 
+    depends_on:
+      - base
+    ports:
+      - "8082:8082"
+
+  luigi-worker:
+    build:
+      context: .
+      dockerfile: docker/luigi-worker.Dockerfile
+    image: piper-worker:latest
+    depends_on:
+      - base
+      - luigi-scheduler
+    environment:
+      - PYTHONUNBUFFERED=1
+      - LUIGI_SCHEDULER_HOST=luigi-scheduler
+
+  orchestrator:
+    build:
+      context: .
+      dockerfile: docker/orchestrator.Dockerfile
+    image: piper-orchestrator:latest
+    depends_on:
+      - base
+      - luigi-scheduler
+    environment:
+      - PYTHONUNBUFFERED=1
+      - LUIGI_SCHEDULER_HOST=luigi-scheduler
+

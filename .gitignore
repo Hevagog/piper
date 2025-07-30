@@ -16,4 +16,5 @@ log/
 
 # Datasets
 data/
+.data/
 *.zip

@@ -38,7 +38,5 @@ _check_dependencies()
 # Clean up module namespace
 del _HARD_DEPENDENCIES, _check_dependencies
 
-from .api import set_up_dataset  # noqa: E402
 
 __version__ = "0.1.0"
-__all__ = ["set_up_dataset"]

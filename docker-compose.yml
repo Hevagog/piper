@@ -7,7 +7,7 @@ services:
       dockerfile: docker/base.Dockerfile
     image: piper-base:latest
     env_file:
-      - ".env"
+      - .env
 
   luigi-scheduler:
     build:
@@ -16,6 +16,8 @@ services:
     image: piper-scheduler:latest 
     depends_on:
       - base
+    networks:
+      - bridged-default
     ports:
       - "8082:8082"
 
@@ -24,12 +26,15 @@ services:
       context: .
       dockerfile: docker/luigi-worker.Dockerfile
     image: piper-worker:latest
+    command: /app/luigi_worker.sh
     depends_on:
-      - base
       - luigi-scheduler
+    networks:
+      - bridged-default
     environment:
       - PYTHONUNBUFFERED=1
       - LUIGI_SCHEDULER_HOST=luigi-scheduler
+      - LUIGI_SCHEDULER_PORT=8082
 
   orchestrator:
     build:
@@ -39,7 +44,12 @@ services:
     depends_on:
       - base
       - luigi-scheduler
+    networks:
+      - bridged-default
     environment:
       - PYTHONUNBUFFERED=1
       - LUIGI_SCHEDULER_HOST=luigi-scheduler
 
+networks:
+  bridged-default:
+    driver: bridge

@@ -1,0 +1,30 @@
+group "default" {
+  targets = ["base", "luigi-scheduler", "luigi-worker", "orchestrator"]
+}
+
+target "base" {
+  context = "."
+  dockerfile = "docker/base.Dockerfile"
+  tags = ["piper-base:latest"]
+}
+
+target "luigi-scheduler" {
+  context = "."
+  dockerfile = "docker/luigi-scheduler.Dockerfile"
+  tags = ["piper-scheduler:latest"]
+  depends_on = ["base"]
+}
+
+target "luigi-worker" {
+  context = "."
+  dockerfile = "docker/luigi-worker.Dockerfile"
+  tags = ["piper-worker:latest"]
+  depends_on = ["base", "luigi-scheduler"]
+}
+
+target "orchestrator" {
+  context = "."
+  dockerfile = "docker/orchestrator.Dockerfile"
+  tags = ["piper-orchestrator:latest"]
+  depends_on = ["base", "luigi-scheduler"]
+}

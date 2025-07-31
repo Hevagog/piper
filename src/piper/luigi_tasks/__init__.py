@@ -1,3 +1,3 @@
-from .luigi_tasks import ProcessAllImages, set_up_dataset
+from .luigi_tasks import ProcessAllImages, SparkAugmentImages
 
-__all__ = ["ProcessAllImages", "set_up_dataset"]
+__all__ = ["ProcessAllImages", "SparkAugmentImages"]

@@ -18,11 +18,7 @@ class GlobalConfig(luigi.Config):
 
     target_width = luigi.IntParameter(default=224)
     target_height = luigi.IntParameter(default=224)
-
     base_data_dir = luigi.Parameter(default="data")
-
-    kaggle_dataset_owner = luigi.Parameter(default="")
-    kaggle_dataset_name = luigi.Parameter(default="")
 
     @property
     def raw_data_dir(self):
@@ -33,59 +29,12 @@ class GlobalConfig(luigi.Config):
         return os.path.join(self.base_data_dir, "processed")
 
 
-def set_up_dataset(
-    kaggle_url: str,
-    target_width: int = 224,
-    target_height: int = 224,
-    base_data_dir: str = "data",
-    num_workers: int = 8,
-    scheduler_host: str = "localhost",
-    scheduler_port: int = 8082,
-):
-    """
-    Sets up the global configuration and runs the Luigi pipeline.
-
-    Args:
-        kaggle_url (str): Kaggle dataset URL in the format "owner/dataset".
-        target_width (int, optional): Target width for image resizing. Defaults to 224.
-        target_height (int, optional): Target height for image resizing. Defaults to 224.
-        base_data_dir (str, optional): Base directory for data storage. Defaults to "data".
-        num_workers (int, optional): Number of workers for parallel processing. Defaults to 8.
-        scheduler_host (str, optional): Luigi scheduler host. Defaults to "localhost".
-        scheduler_port (int, optional): Luigi scheduler port. Defaults to 8082.
-
-    Raises:
-        ValueError: If the Kaggle URL format is invalid.
-    """
-    try:
-        owner, dataset_name = kaggle_url.split("/")
-    except ValueError:
-        raise ValueError("Invalid Kaggle URL format. Expected 'owner/dataset'.")
-
-    # Set global configuration
-    GlobalConfig.target_width = target_width
-    GlobalConfig.target_height = target_height
-    GlobalConfig.base_data_dir = base_data_dir
-    GlobalConfig.kaggle_dataset_owner = owner
-    GlobalConfig.kaggle_dataset_name = dataset_name
-
-    luigi.run(
-        [
-            "SparkAugmentImages",
-            "--scheduler-host",
-            scheduler_host,
-            "--scheduler-port",
-            str(scheduler_port),
-            "--workers",
-            str(num_workers),
-        ]
-    )
-
-
 class DownloadKaggleDataset(luigi.Task):
     """
     Downloads the specified Kaggle dataset.
     """
+
+    kaggle_url = luigi.Parameter()
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -114,11 +63,12 @@ class DownloadKaggleDataset(luigi.Task):
             api = KaggleApi()
             api.authenticate()
 
-            dataset_slug = f"{config.kaggle_dataset_owner}/{config.kaggle_dataset_name}"
-            zip_path = os.path.join(raw_data_dir, f"{config.kaggle_dataset_name}.zip")
+            zip_path = os.path.join(
+                raw_data_dir, f"{self.kaggle_url.split('/')[-1]}.zip"
+            )
 
-            self._logger.info(f"Downloading dataset: {dataset_slug} to {zip_path}")
-            api.dataset_download_files(dataset_slug, path=raw_data_dir, unzip=False)
+            self._logger.info(f"Downloading dataset: {self.kaggle_url} to {zip_path}")
+            api.dataset_download_files(self.kaggle_url, path=raw_data_dir, unzip=False)
             self._logger.info("Download complete.")
 
             self._logger.info(f"Unzipping {zip_path}...")
@@ -185,6 +135,8 @@ class ListRawImages(luigi.Task):
     Lists all image files in the raw data directory after download.
     This task doesn't create new files, but helps with dependency management.
     """
+
+    kaggle_url = luigi.Parameter()
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -280,6 +232,8 @@ class SparkAugmentImages(luigi.Task):
     """
     Luigi Task that launches a PySpark job to perform distributed image resizing and augmentation.
     """
+
+    kaggle_url = luigi.Parameter()
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

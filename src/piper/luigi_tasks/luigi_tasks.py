@@ -234,6 +234,7 @@ class SparkAugmentImages(luigi.Task):
     """
 
     kaggle_url = luigi.Parameter()
+    output_dir = luigi.Parameter(default=GlobalConfig().processed_data_dir)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -241,7 +242,7 @@ class SparkAugmentImages(luigi.Task):
 
     def output(self):
         return luigi.LocalTarget(
-            os.path.join(GlobalConfig().processed_data_dir, ".spark_augment_complete")
+            os.path.join(self.output_dir, ".spark_augment_complete")
         )
 
     def run(self):
@@ -264,7 +265,7 @@ class SparkAugmentImages(luigi.Task):
             base_dir=package_name,
         )
 
-        spark_script = os.path.join(os.path.dirname(__file__), "data_augment.py")
+        spark_script = os.path.join(package_root, "spark", "data_augment.py")
         cmd = [
             "spark-submit",
             "--py-files",
@@ -273,7 +274,7 @@ class SparkAugmentImages(luigi.Task):
             "--input_dir",
             GlobalConfig().raw_data_dir,
             "--output_dir",
-            GlobalConfig().processed_data_dir,
+            self.output_dir,
             "--width",
             str(GlobalConfig().target_width),
             "--height",

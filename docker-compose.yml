@@ -28,13 +28,17 @@ services:
     image: piper-worker:latest
     command: /app/luigi_worker.sh
     depends_on:
+      - base
       - luigi-scheduler
     networks:
       - bridged-default
     environment:
       - PYTHONUNBUFFERED=1
-      - LUIGI_SCHEDULER_HOST=luigi-scheduler
-      - LUIGI_SCHEDULER_PORT=8082
+    env_file:
+      - .env
+      - config/config.env
+    volumes:
+      - piper-data:/data
 
   orchestrator:
     build:
@@ -48,8 +52,16 @@ services:
       - bridged-default
     environment:
       - PYTHONUNBUFFERED=1
-      - LUIGI_SCHEDULER_HOST=luigi-scheduler
+    env_file:
+      - .env
+      - config/config.env
+    volumes:
+      - piper-data:/data
 
 networks:
   bridged-default:
     driver: bridge
+
+volumes:
+  piper-data:
+    driver: local

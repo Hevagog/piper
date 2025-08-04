@@ -2,7 +2,7 @@ import os
 
 import luigi
 
-from piper.luigi_tasks.luigi_tasks import SparkAugmentImages
+from piper.luigi_tasks.luigi_tasks import AllTasks
 
 
 def main():
@@ -14,7 +14,7 @@ def main():
     scheduler_url = f"http://{scheduler_host}:{scheduler_port}"
 
     luigi.build(
-        [SparkAugmentImages(kaggle_url=kaggle_url)],
+        [AllTasks(kaggle_url=kaggle_url)],
         local_scheduler=False,
         scheduler_url=scheduler_url,
         workers=0,

@@ -1,3 +1,3 @@
-from .luigi_tasks import ProcessAllImages, SparkAugmentImages
+from .luigi_tasks import SparkAugmentImages, AllTasks, DownloadResNet50Weights
 
-__all__ = ["ProcessAllImages", "SparkAugmentImages"]
+__all__ = ["SparkAugmentImages", "AllTasks", "DownloadResNet50Weights"]

@@ -1,6 +1,7 @@
 import luigi
 from luigi.util import requires
 import os
+import requests
 import subprocess
 import zipfile
 from kaggle.api.kaggle_api_extended import KaggleApi
@@ -18,15 +19,16 @@ class GlobalConfig(luigi.Config):
 
     target_width = luigi.IntParameter(default=224)
     target_height = luigi.IntParameter(default=224)
-    base_data_dir = luigi.Parameter(default="data")
+    shared_volume_dir = luigi.Parameter(default="/data")
+    local_dir = luigi.Parameter(default="data")
 
     @property
     def raw_data_dir(self):
-        return os.path.join(self.base_data_dir, "raw")
+        return os.path.join(self.local_dir, "raw")
 
     @property
     def processed_data_dir(self):
-        return os.path.join(self.base_data_dir, "processed")
+        return os.path.join(self.shared_volume_dir, "processed")
 
 
 class DownloadKaggleDataset(luigi.Task):
@@ -45,7 +47,7 @@ class DownloadKaggleDataset(luigi.Task):
         Returns the target output for this task.
         """
         return luigi.LocalTarget(
-            os.path.join(GlobalConfig().raw_data_dir, ".dataset_download_complete")
+            os.path.join(GlobalConfig().shared_volume_dir, ".dataset_download_complete")
         )
 
     def run(self):
@@ -55,8 +57,7 @@ class DownloadKaggleDataset(luigi.Task):
         extracts its contents directly into the target raw_data_dir, avoiding
         the creation of an unwanted subdirectory.
         """
-        config = GlobalConfig()
-        raw_data_dir = config.raw_data_dir
+        raw_data_dir = GlobalConfig().raw_data_dir
         try:
             os.makedirs(raw_data_dir, exist_ok=True)
 
@@ -147,7 +148,7 @@ class ListRawImages(luigi.Task):
         Returns a target indicating that the raw image list has been identified.
         """
         return luigi.LocalTarget(
-            os.path.join(GlobalConfig().raw_data_dir, ".raw_image_list_complete")
+            os.path.join(GlobalConfig().shared_volume_dir, ".raw_image_list_complete")
         )
 
     def run(self):
@@ -234,7 +235,6 @@ class SparkAugmentImages(luigi.Task):
     """
 
     kaggle_url = luigi.Parameter()
-    output_dir = luigi.Parameter(default=GlobalConfig().processed_data_dir)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -242,7 +242,7 @@ class SparkAugmentImages(luigi.Task):
 
     def output(self):
         return luigi.LocalTarget(
-            os.path.join(self.output_dir, ".spark_augment_complete")
+            os.path.join(GlobalConfig().processed_data_dir, ".spark_augment_complete")
         )
 
     def run(self):
@@ -274,7 +274,7 @@ class SparkAugmentImages(luigi.Task):
             "--input_dir",
             GlobalConfig().raw_data_dir,
             "--output_dir",
-            self.output_dir,
+            GlobalConfig().processed_data_dir,
             "--width",
             str(GlobalConfig().target_width),
             "--height",
@@ -298,53 +298,50 @@ class SparkAugmentImages(luigi.Task):
                 self._logger.info(f"Removed temporary archive: {archive_path}")
 
 
-@requires(ListRawImages)
-class ProcessAllImages(luigi.Task):
+class DownloadResNet50Weights(luigi.Task):
     """
-    Orchestrates the resizing of all images in the dataset.
-    This is a WrapperTask that requires ResizeImage for all images.
+    Downloads the pre-trained ResNet50 weights from a Pytorch URL.
+    Saves it to the specified directory, by default is the directory of the shared docker volume.
+    Parameters:
+        - output_dir: Directory where the weights will be saved. Defaults to the shared volume directory.
     """
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._logger = get_logger(__name__)
+    output_dir = luigi.Parameter(default=GlobalConfig().shared_volume_dir)
+    url = "https://download.pytorch.org/models/resnet50-11ad3fa6.pth"
+
+    def output(self):
+        return luigi.LocalTarget(
+            os.path.join(self.output_dir, "resnet50-weights.pth"),
+            format=luigi.format.Nop,
+        )
 
     def run(self):
-        """
-        Yields a ResizeImage task for each image found in the raw data directory.
-        Luigi will run these tasks in parallel when --workers > 1 is specified.
-        """
-        raw_images_root = GlobalConfig().raw_data_dir
-        self._logger.info(f"Scanning for images in {raw_images_root}...")
+        os.makedirs(self.output_dir, exist_ok=True)
+        resp = requests.get(self.url, stream=True)
+        resp.raise_for_status()
+        # Download the file in chunks to avoid memory issues
+        with self.output().open("w") as f:
+            for chunk in resp.iter_content(chunk_size=8192):
+                f.write(chunk)
 
-        if not self.input().exists():
-            error_msg = "Raw image list not complete. Run DownloadKaggleDataset and ListRawImages first."
-            self._logger.error(error_msg)
-            raise luigi.MissingDependencyException(error_msg)
 
-        image_paths = []
-        try:
-            for root, _, files in os.walk(raw_images_root):
-                valid_files = [
-                    os.path.join(root, file)
-                    for file in files
-                    if file.lower().endswith(IMAGE_FORMATS)
-                ]
-                image_paths.extend(valid_files)
-        except Exception as e:
-            self._logger.error(f"Error scanning for images in {raw_images_root}: {e}")
-            raise
+class AllTasks(luigi.WrapperTask):
+    """
+    This task is used to run:
+    - SparkAugmentImages
+        - DownloadKaggleDataset
+        - ListRawImages
+    - DownloadResNet50Weights
 
-        if not image_paths:
-            self._logger.warning(
-                f"No images found in {raw_images_root}. Please check the dataset structure."
-            )
-        else:
-            self._logger.info(f"Found {len(image_paths)} images to process in parallel")
+    It ensures that all tasks are executed.
+    Parameters:
+        - kaggle_url: (SparkAugmentImages) The URL of the Kaggle dataset to download.
+        - output_weights_dir (optional): (DownloadResNet50Weights) The directory where the ResNet50 weights will be saved.
+    """
 
-        for img_path in image_paths:
-            yield ResizeImage(
-                image_path=img_path,
-                target_width=GlobalConfig().target_width,
-                target_height=GlobalConfig().target_height,
-            )
+    kaggle_url = luigi.Parameter()
+    output_weights_dir = luigi.Parameter(default=GlobalConfig().shared_volume_dir)
+
+    def requires(self):
+        yield SparkAugmentImages(kaggle_url=self.kaggle_url)
+        yield DownloadResNet50Weights(output_dir=self.output_weights_dir)

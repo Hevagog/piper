@@ -25,7 +25,7 @@ RUN apt-get update && \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 COPY pyproject.toml uv.lock ./
-COPY src/ ./
+COPY src/piper/ ./piper/
 
 # Copy luigi configuration
 COPY config/ ./

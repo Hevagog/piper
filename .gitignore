@@ -21,3 +21,7 @@ data/
 
 # Environment variables
 .env
+
+# Rust-related files
+Cargo.lock
+target/

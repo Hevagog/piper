@@ -1,0 +1,11 @@
+[package]
+name = "burn-nn"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+burn = { version = "~0.18", features = ["train", "cuda", "vision","fusion"] }
+burn-import = {version = "~0.18", features=["pytorch","safetensors"]}
+image = "0.25.6"
+imageproc = "0.25.0"
+ratatui = "0.29.0"

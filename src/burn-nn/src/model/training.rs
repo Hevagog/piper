@@ -1,17 +1,20 @@
 use crate::{
     data::{ImageBatch, ImageBatcher, load_dataset},
-    model::resnet::ResNet50,
+    model::{metrics::accuracy, resnet::ResNet50, valid::validate_epoch},
 };
 use burn::{
-    data::dataloader::DataLoaderBuilder,
-    nn::loss::CrossEntropyLossConfig,
-    optim::AdamWConfig,
+    data::{
+        dataloader::{DataLoader, DataLoaderBuilder},
+        dataset::Dataset,
+    },
+    module::AutodiffModule,
+    nn::loss::{CrossEntropyLoss, CrossEntropyLossConfig},
+    optim::{AdamWConfig, GradientsParams, Optimizer},
     prelude::*,
     record::CompactRecorder,
     tensor::backend::AutodiffBackend,
     train::{
-        ClassificationOutput, LearnerBuilder, TrainOutput, TrainStep, ValidStep,
-        metric::{AccuracyMetric, LossMetric},
+        ClassificationOutput, LearnerBuilder, TrainOutput, TrainStep, ValidStep, metric::LossMetric,
     },
 };
 
@@ -51,7 +54,7 @@ pub struct TrainingConfig {
     #[config(default = 40)]
     pub num_epochs: usize,
 
-    #[config(default = 8)]
+    #[config(default = 20)]
     pub batch_size: usize,
 
     #[config(default = 10)]
@@ -60,11 +63,20 @@ pub struct TrainingConfig {
     #[config(default = 42)]
     pub seed: u64,
 
-    #[config(default = 1.0e-4)]
+    #[config(default = 1.0e-3)]
     pub learning_rate: f64,
 
     #[config(default = 0.1)]
     pub label_smoothing: f64,
+
+    #[config(default = 10)]
+    pub lr_step_size: usize,
+
+    #[config(default = 0.5)]
+    pub lr_gamma: f64,
+
+    #[config(default = 5)]
+    pub early_stopping_patience: usize,
 }
 
 fn create_artifact_dir(artifact_dir: &str) {
@@ -114,4 +126,135 @@ pub fn train<B: AutodiffBackend>(
     model_trained
         .save_file(format!("{artifact_dir}/model"), &CompactRecorder::new())
         .expect("Trained model should be saved successfully");
+}
+
+pub fn train_head_only<B: AutodiffBackend>(
+    artifact_dir: &str,
+    mut model: ResNet50<B>,
+    device: B::Device,
+) {
+    create_artifact_dir(artifact_dir);
+
+    let optim_config = AdamWConfig::new().with_weight_decay(1.0e-2);
+    let config = TrainingConfig::new(optim_config);
+    B::seed(config.seed);
+    config
+        .save(format!("{artifact_dir}/config.json"))
+        .expect("Config should be saved successfully");
+
+    let batcher = ImageBatcher::default();
+
+    let dataset = load_dataset();
+    let total_samples = dataset.len();
+    let train_size = (total_samples as f32 * 0.8) as usize;
+
+    let dataloader_train = DataLoaderBuilder::new(batcher.clone())
+        .batch_size(config.batch_size)
+        .shuffle(config.seed)
+        .num_workers(config.num_workers)
+        .build(dataset);
+
+    let dataloader_val: std::sync::Arc<
+        dyn DataLoader<B::InnerBackend, ImageBatch<B::InnerBackend>>,
+    > = DataLoaderBuilder::new(batcher.clone())
+        .batch_size(config.batch_size)
+        .shuffle(config.seed + 1)
+        .num_workers(config.num_workers)
+        .build(load_dataset());
+
+    let mut optim = config.optimizer.init();
+    let mut best_val_accuracy = 0.0;
+    let mut patience_counter = 0;
+    let mut current_lr = config.learning_rate;
+
+    println!(
+        "Starting head-only training with {} epochs",
+        config.num_epochs
+    );
+    println!("Initial learning rate: {:.6}", current_lr);
+
+    for epoch in 1..config.num_epochs + 1 {
+        model = model.to_device(&device);
+        let mut total_loss = 0.0;
+        let mut total_accuracy = 0.0;
+        let mut batch_count = 0;
+
+        for (iteration, batch) in dataloader_train.iter().enumerate() {
+            let output = model.forward_head_only(batch.images);
+            let loss =
+                CrossEntropyLoss::new(None, &device).forward(output.clone(), batch.labels.clone());
+            let accuracy = accuracy(output.clone(), batch.labels.clone());
+
+            let grads = loss.backward();
+            let grads = GradientsParams::from_grads(grads, &model);
+            model = optim.step(config.learning_rate, model.clone(), grads);
+
+            if iteration % 75 == 0 {
+                println!(
+                    "[Train - Epoch {} - Iteration {}] Loss {:.4} | Accuracy {:.2}%",
+                    epoch,
+                    iteration,
+                    loss.clone().into_scalar(),
+                    accuracy
+                );
+            }
+
+            total_loss += loss.clone().into_scalar().elem::<f32>();
+            total_accuracy += accuracy;
+            batch_count += 1;
+        }
+
+        let train_loss = total_loss / batch_count as f32;
+        let train_acc = total_accuracy / batch_count as f32;
+
+        let model_valid = model.valid();
+
+        let (val_loss, val_acc) = validate_epoch(&model_valid, &dataloader_val, &device);
+
+        println!(
+            "Epoch {}: Train Loss {:.4}, Train Acc {:.2}% | Val Loss {:.4}, Val Acc {:.2}%",
+            epoch, train_loss, train_acc, val_loss, val_acc
+        );
+
+        if epoch % config.lr_step_size == 0 {
+            current_lr *= config.lr_gamma;
+            println!("Learning rate decayed to: {:.6}", current_lr);
+        }
+
+        // Early stopping
+        if val_acc > best_val_accuracy {
+            best_val_accuracy = val_acc;
+            patience_counter = 0;
+
+            // Save best model
+            let recorder = CompactRecorder::new();
+            model
+                .clone()
+                .save_file(format!("{artifact_dir}/best_model"), &recorder)
+                .expect("Best model should be saved successfully");
+        } else {
+            patience_counter += 1;
+            if patience_counter >= config.early_stopping_patience {
+                println!(
+                    "Early stopping triggered at epoch {} (best val acc: {:.2}%)",
+                    epoch, best_val_accuracy
+                );
+                break;
+            }
+        }
+
+        // Checkpoint save
+        if epoch % 5 == 0 {
+            let recorder = CompactRecorder::new();
+            model
+                .clone()
+                .save_file(format!("{artifact_dir}/model_epoch_{epoch}"), &recorder)
+                .expect("Model should be saved successfully");
+        }
+    }
+
+    println!(
+        "Training completed. Best validation accuracy: {:.2}%",
+        best_val_accuracy
+    );
 }

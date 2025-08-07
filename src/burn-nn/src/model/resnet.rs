@@ -64,7 +64,7 @@ impl<B: Backend> ResNet50<B> {
         }
     }
 
-    pub fn forward(&self, input: Tensor<B, 4>) -> Tensor<B, 2> {
+    fn base_forward(&self, input: Tensor<B, 4>) -> Tensor<B, 2> {
         let x = self.conv1.forward(input);
         let x = self.norm1.forward(x);
         let x = self.relu.forward(x);
@@ -77,6 +77,13 @@ impl<B: Backend> ResNet50<B> {
 
         let x = self.avgpool.forward(x);
         let x = x.flatten(1, 3);
+        x
+    }
+
+    /// Forward pass for classification.
+    /// This method performs the forward pass through the ResNet50 model for classification tasks.
+    pub fn forward(&self, input: Tensor<B, 4>) -> Tensor<B, 2> {
+        let x = self.base_forward(input);
         self.fc.forward(x)
     }
     pub fn load(
@@ -89,10 +96,14 @@ impl<B: Backend> ResNet50<B> {
         self.fc = LinearConfig::new(512 * 4, num_classes).init(device);
         self
     }
-}
 
-impl<B: Backend> ResNet50<B> {
     pub fn resnet50(num_classes: usize, device: &Device<B>) -> Self {
         Self::new([3, 4, 6, 3], num_classes, 4, device)
+    }
+
+    /// Forward pass with detached backbone (for head-only training)
+    pub fn forward_head_only(&self, input: Tensor<B, 4>) -> Tensor<B, 2> {
+        let x = self.base_forward(input).detach();
+        self.fc.forward(x)
     }
 }

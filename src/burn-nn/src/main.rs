@@ -5,16 +5,12 @@ mod utils;
 use std::path::Path;
 
 use crate::model::resnet::{ResNet50, ResNet50Record};
-use burn::{module::Module, tensor::Tensor};
-use image::{DynamicImage, ImageBuffer};
-use res_sat::data::normalize::normalize;
 
 use {
     burn::{
         backend::{Autodiff, cuda::Cuda, cuda::CudaDevice},
-        data::dataloader::{DataLoaderBuilder, Dataset},
-        prelude::*,
-        record::{FullPrecisionSettings, Recorder, RecorderError},
+        data::dataloader::DataLoaderBuilder,
+        record::{FullPrecisionSettings, Recorder},
     },
     burn_import::pytorch::{LoadArgs, PyTorchFileRecorder},
 };
@@ -74,13 +70,13 @@ fn main() {
     model::training::train_head_only(artifact_dir, model, device);
 
     let batcher = data::ImageBatcher::default();
-    let dataloader_train: std::sync::Arc<
-        dyn burn::data::dataloader::DataLoader<Backend, data::ImageBatch<Backend>>,
-    > = DataLoaderBuilder::new(batcher.clone())
-        .batch_size(256)
-        .shuffle(1)
-        .num_workers(2)
-        .build(data::load_dataset());
+    // let dataloader_train: std::sync::Arc<
+    //     dyn burn::data::dataloader::DataLoader<Backend, data::ImageBatch<Backend>>,
+    // > = DataLoaderBuilder::new(batcher.clone())
+    //     .batch_size(256)
+    //     .shuffle(1)
+    //     .num_workers(2)
+    //     .build(data::load_dataset());
 
     // model.forward(images);
 }

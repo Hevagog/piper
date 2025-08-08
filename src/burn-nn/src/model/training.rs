@@ -26,6 +26,7 @@ impl<B: Backend> ResNet50<B> {
     ) -> ClassificationOutput<B> {
         let output = self.forward(images);
         let loss = CrossEntropyLossConfig::new()
+            .with_smoothing(Some(0.1))
             .init(&output.device())
             .forward(output.clone(), targets.clone());
 
@@ -57,7 +58,7 @@ pub struct TrainingConfig {
     #[config(default = 20)]
     pub batch_size: usize,
 
-    #[config(default = 10)]
+    #[config(default = 14)]
     pub num_workers: usize,
 
     #[config(default = 42)]
@@ -67,7 +68,7 @@ pub struct TrainingConfig {
     pub learning_rate: f64,
 
     #[config(default = 0.1)]
-    pub label_smoothing: f64,
+    pub label_smoothing: f32,
 
     #[config(default = 10)]
     pub lr_step_size: usize,
@@ -181,13 +182,14 @@ pub fn train_head_only<B: AutodiffBackend>(
 
         for (iteration, batch) in dataloader_train.iter().enumerate() {
             let output = model.forward_head_only(batch.images);
-            let loss =
-                CrossEntropyLoss::new(None, &device).forward(output.clone(), batch.labels.clone());
+            let mut loss = CrossEntropyLoss::new(None, &device);
+            loss.smoothing = Some(config.label_smoothing);
+            let loss = loss.forward(output.clone(), batch.labels.clone());
             let accuracy = accuracy(output.clone(), batch.labels.clone());
 
             let grads = loss.backward();
             let grads = GradientsParams::from_grads(grads, &model);
-            model = optim.step(config.learning_rate, model.clone(), grads);
+            model = optim.step(current_lr, model.clone(), grads);
 
             if iteration % 75 == 0 {
                 println!(

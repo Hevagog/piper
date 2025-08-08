@@ -1,20 +1,14 @@
+pub mod augmentation;
 pub mod normalize;
-// pub mod augmentation;
 
 use burn::{
     data::{
         dataloader::batcher::Batcher,
-        dataset::{
-            Dataset,
-            transform::{PartialDataset, ShuffledDataset},
-            vision::{Annotation, ImageDatasetItem, ImageFolderDataset, PixelDepth},
-        },
+        dataset::vision::{Annotation, ImageDatasetItem, ImageFolderDataset, PixelDepth},
     },
     prelude::*,
     tensor::Tensor,
 };
-
-use image::{DynamicImage, ImageBuffer};
 
 use crate::common::{CHANNELS, HEIGHT, WIDTH};
 
@@ -95,26 +89,8 @@ fn convert_dset_annotation_to_label<B: Backend>(
     }
 }
 
-pub fn convert_u8_image(item: &ImageDatasetItem) -> Option<DynamicImage> {
-    let pixels: Vec<u8> = item
-        .image
-        .iter()
-        .filter_map(|p| {
-            if let PixelDepth::U8(val) = p {
-                Some(*val)
-            } else {
-                None
-            }
-        })
-        .collect();
-
-    Some(DynamicImage::ImageRgb8(
-        ImageBuffer::from_vec(WIDTH as u32, HEIGHT as u32, pixels).unwrap(),
-    ))
-}
-
 pub fn load_dataset() -> ImageFolderDataset {
-    ImageFolderDataset::new_classification("data").unwrap()
+    ImageFolderDataset::new_classification("data/processed").unwrap()
 }
 
 // pub fn load_train_test_datasets(

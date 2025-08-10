@@ -2,12 +2,11 @@ use crate::{
     data::ImageBatch,
     model::{metrics::accuracy, resnet::ResNet50},
 };
-use burn::{data::dataloader::DataLoader, nn::loss::CrossEntropyLoss, prelude::*};
+use burn::{data::dataloader::DataLoader, nn::loss::CrossEntropyLossConfig, prelude::*};
 
 pub fn validate_epoch<B: Backend>(
     model: &ResNet50<B>,
     dataloader: &std::sync::Arc<dyn DataLoader<B, ImageBatch<B>>>,
-    device: &B::Device,
 ) -> (f32, f32) {
     let mut total_loss = 0.0;
     let mut total_accuracy = 0.0;
@@ -15,8 +14,9 @@ pub fn validate_epoch<B: Backend>(
 
     for batch in dataloader.iter() {
         let output = model.forward_head_only(batch.images);
-        let loss =
-            CrossEntropyLoss::new(None, device).forward(output.clone(), batch.labels.clone());
+        let loss = CrossEntropyLossConfig::new()
+            .init(&output.device())
+            .forward(output.clone(), batch.labels.clone());
         let accuracy = accuracy(output, batch.labels);
 
         total_loss += loss.into_scalar().elem::<f32>();

@@ -1,12 +1,9 @@
 use crate::{
-    data::{ImageBatch, ImageBatcher, load_dataset},
+    data::{load_train_val_datasets, ImageBatch, ImageBatcher},
     model::{metrics::accuracy, resnet::ResNet50, valid::validate_epoch},
 };
 use burn::{
-    data::{
-        dataloader::{DataLoader, DataLoaderBuilder},
-        dataset::Dataset,
-    },
+    data::dataloader::{DataLoader, DataLoaderBuilder},
     module::AutodiffModule,
     nn::loss::{CrossEntropyLoss, CrossEntropyLossConfig},
     optim::{AdamWConfig, GradientsParams, Optimizer},
@@ -14,7 +11,7 @@ use burn::{
     record::CompactRecorder,
     tensor::backend::AutodiffBackend,
     train::{
-        ClassificationOutput, LearnerBuilder, TrainOutput, TrainStep, ValidStep, metric::LossMetric,
+        metric::LossMetric, ClassificationOutput, LearnerBuilder, TrainOutput, TrainStep, ValidStep,
     },
 };
 
@@ -55,7 +52,7 @@ pub struct TrainingConfig {
     #[config(default = 40)]
     pub num_epochs: usize,
 
-    #[config(default = 20)]
+    #[config(default = 18)]
     pub batch_size: usize,
 
     #[config(default = 14)]
@@ -99,19 +96,22 @@ pub fn train<B: AutodiffBackend>(
 
     B::seed(config.seed);
 
-    let batcher = ImageBatcher::default();
+    let batcher_train = ImageBatcher::train_default();
+    let batcher_eval = ImageBatcher::eval();
 
-    let dataloader_train = DataLoaderBuilder::new(batcher.clone())
+    let (train_ds, val_ds) = load_train_val_datasets(config.seed, 0.8);
+
+    let dataloader_train = DataLoaderBuilder::new(batcher_train.clone())
         .batch_size(config.batch_size)
         .shuffle(config.seed)
         .num_workers(config.num_workers)
-        .build(load_dataset());
+        .build(train_ds);
 
-    let dataloader_test = DataLoaderBuilder::new(batcher)
+    let dataloader_test = DataLoaderBuilder::new(batcher_eval)
         .batch_size(config.batch_size)
-        .shuffle(config.seed)
+        .shuffle(config.seed + 1)
         .num_workers(config.num_workers)
-        .build(load_dataset());
+        .build(val_ds);
 
     let learner = LearnerBuilder::new(artifact_dir)
         .metric_train_numeric(LossMetric::new())
@@ -143,25 +143,24 @@ pub fn train_head_only<B: AutodiffBackend>(
         .save(format!("{artifact_dir}/config.json"))
         .expect("Config should be saved successfully");
 
-    let batcher = ImageBatcher::default();
+    let batcher_train = ImageBatcher::train_default();
+    let batcher_eval = ImageBatcher::eval();
 
-    let dataset = load_dataset();
-    let total_samples = dataset.len();
-    let train_size = (total_samples as f32 * 0.8) as usize;
+    let (train_ds, val_ds) = load_train_val_datasets(config.seed, 0.8);
 
-    let dataloader_train = DataLoaderBuilder::new(batcher.clone())
+    let dataloader_train = DataLoaderBuilder::new(batcher_train.clone())
         .batch_size(config.batch_size)
         .shuffle(config.seed)
         .num_workers(config.num_workers)
-        .build(dataset);
+        .build(train_ds);
 
     let dataloader_val: std::sync::Arc<
         dyn DataLoader<B::InnerBackend, ImageBatch<B::InnerBackend>>,
-    > = DataLoaderBuilder::new(batcher.clone())
+    > = DataLoaderBuilder::new(batcher_eval.clone())
         .batch_size(config.batch_size)
         .shuffle(config.seed + 1)
         .num_workers(config.num_workers)
-        .build(load_dataset());
+        .build(val_ds);
 
     let mut optim = config.optimizer.init();
     let mut best_val_accuracy = 0.0;
@@ -197,7 +196,7 @@ pub fn train_head_only<B: AutodiffBackend>(
                     epoch,
                     iteration,
                     loss.clone().into_scalar(),
-                    accuracy
+                    accuracy.clone()
                 );
             }
 
@@ -211,7 +210,7 @@ pub fn train_head_only<B: AutodiffBackend>(
 
         let model_valid = model.valid();
 
-        let (val_loss, val_acc) = validate_epoch(&model_valid, &dataloader_val, &device);
+        let (val_loss, val_acc) = validate_epoch(&model_valid, &dataloader_val);
 
         println!(
             "Epoch {}: Train Loss {:.4}, Train Acc {:.2}% | Val Loss {:.4}, Val Acc {:.2}%",

@@ -31,6 +31,7 @@ pub fn image_dset_to_image(item: &Vec<PixelDepth>) -> Image<Rgb<u8>> {
     Image::from(img_buf)
 }
 
+#[derive(Clone)]
 pub struct AugmentationConfig {
     /// Rotation range in degrees
     pub rotation_range: i16,
@@ -74,6 +75,7 @@ impl Default for AugmentationConfig {
     }
 }
 
+#[derive(Clone)]
 pub struct ImageAugmenter {
     config: AugmentationConfig,
 }

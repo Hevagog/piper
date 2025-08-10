@@ -1,5 +1,12 @@
 group "default" {
+  targets = ["base", "luigi-scheduler", "luigi-worker", "orchestrator","nn-worker"]
+}
+group "base" {
   targets = ["base", "luigi-scheduler", "luigi-worker", "orchestrator"]
+}
+
+group "rust-nn" {
+  targets = ["nn-worker"]
 }
 
 target "base" {
@@ -27,4 +34,11 @@ target "orchestrator" {
   dockerfile = "docker/orchestrator.Dockerfile"
   tags = ["piper-orchestrator:latest"]
   depends_on = ["base", "luigi-scheduler"]
+}
+
+target "nn-worker" {
+  context = "."
+  dockerfile = "docker/nn-worker.Dockerfile"
+  tags = ["piper-nn-worker:latest"]
+  depends_on = ["base"]
 }

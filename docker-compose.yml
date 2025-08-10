@@ -57,6 +57,21 @@ services:
       - config/config.env
     volumes:
       - piper-data:/data
+    
+  nn-worker:
+    build:
+      context: .
+      dockerfile: docker/nn-worker.Dockerfile
+    command: nvidia-smi
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    volumes:
+      - piper-data:/data
 
 networks:
   bridged-default:

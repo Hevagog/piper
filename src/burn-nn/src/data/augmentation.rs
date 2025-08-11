@@ -1,5 +1,6 @@
 use crate::common::{CHANNELS, HEIGHT, WIDTH};
 use burn::data::dataset::vision::PixelDepth;
+use color_eyre::{Result, eyre::bail};
 use image::{ImageBuffer, Rgb};
 use imageproc::noise::gaussian_noise;
 use imageproc::{
@@ -11,24 +12,26 @@ use std::f32::consts::PI;
 
 /// Converts a vector of PixelDepth to an imageproc::Image<Rgb<u8>>.
 /// Assumes input is in row-major order, 3 channels (RGB), and u8 pixel depth.
-pub fn image_dset_to_image(item: &Vec<PixelDepth>) -> Image<Rgb<u8>> {
-    assert_eq!(
-        item.len(),
-        (WIDTH * HEIGHT * CHANNELS) as usize,
-        "Input length mismatch"
-    );
+pub fn image_dset_to_image(item: &Vec<PixelDepth>) -> Result<Image<Rgb<u8>>> {
+    if item.len() != (WIDTH * HEIGHT * CHANNELS) as usize {
+        bail!(
+            "Image length {} does not match expected {}",
+            item.len(),
+            WIDTH * HEIGHT * CHANNELS
+        );
+    }
     let mut buf = Vec::with_capacity(item.len());
     for p in item {
         match p {
             PixelDepth::U8(val) => buf.push(*val),
-            _ => panic!("Non-u8 PixelDepth encountered"),
+            _ => bail!("Encountered non-u8 PixelDepth variant"),
         }
     }
     let img_buf: ImageBuffer<Rgb<u8>, Vec<u8>> =
-        ImageBuffer::from_vec(WIDTH as u32, HEIGHT as u32, buf)
-            .expect("Failed to create ImageBuffer");
-
-    Image::from(img_buf)
+        ImageBuffer::from_vec(WIDTH as u32, HEIGHT as u32, buf).ok_or_else(|| {
+            color_eyre::eyre::eyre!("Failed to create ImageBuffer from raw pixel data")
+        })?;
+    Ok(Image::from(img_buf))
 }
 
 #[derive(Clone)]
@@ -84,14 +87,13 @@ impl ImageAugmenter {
     pub fn new(config: AugmentationConfig) -> Self {
         ImageAugmenter { config }
     }
-    pub fn augment(&self, img: &Image<Rgb<u8>>) -> Image<Rgb<u8>> {
+    pub fn augment(&self, img: &Image<Rgb<u8>>) -> Result<Image<Rgb<u8>>> {
         let mut out_img = img.clone();
         out_img = self.rotate_image(&out_img);
-        // out_img = self.flip_image(&out_img); // Uncomment if flip is needed
         out_img = self.noise_image(&out_img);
         out_img = self.random_erasing(&out_img);
         out_img = self.random_contrast_brightness(&out_img);
-        out_img
+        Ok(out_img)
     }
 
     fn rotate_image(&self, img: &Image<Rgb<u8>>) -> Image<Rgb<u8>> {

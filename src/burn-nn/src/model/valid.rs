@@ -1,13 +1,11 @@
-use crate::{
-    data::ImageBatch,
-    model::{metrics::accuracy, resnet::ResNet50},
-};
+use crate::{data::ImageBatch, model::resnet::ResNet50, utils::metrics::accuracy};
 use burn::{data::dataloader::DataLoader, nn::loss::CrossEntropyLossConfig, prelude::*};
+use color_eyre::Result;
 
 pub fn validate_epoch<B: Backend>(
     model: &ResNet50<B>,
     dataloader: &std::sync::Arc<dyn DataLoader<B, ImageBatch<B>>>,
-) -> (f32, f32) {
+) -> Result<(f32, f32)> {
     let mut total_loss = 0.0;
     let mut total_accuracy = 0.0;
     let mut batch_count = 0;
@@ -24,8 +22,8 @@ pub fn validate_epoch<B: Backend>(
         batch_count += 1;
     }
 
-    (
+    Ok((
         total_loss / batch_count as f32,
         total_accuracy / batch_count as f32,
-    )
+    ))
 }

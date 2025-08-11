@@ -16,6 +16,10 @@ use burn::{
 
 use crate::common::{CHANNELS, HEIGHT, WIDTH};
 use crate::data::augmentation::{ImageAugmenter, image_dset_to_image};
+use color_eyre::{
+    Result,
+    eyre::{WrapErr, bail},
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BatcherMode {
@@ -67,10 +71,13 @@ impl<B: Backend> Batcher<B, ImageDatasetItem, ImageBatch<B>> for ImageBatcher {
                 // Convert dataset item to tensor, with optional augmentation in train mode.
                 match (self.mode, &self.augmenter) {
                     (BatcherMode::Train, Some(aug)) => {
-                        let img = image_dset_to_image(&item.image);
-                        // Optional: keep size; rot adds black corners but is acceptable for now.
-                        let img = aug.augment(&img);
-                        convert_image_to_tensor::<B>(&img, device)
+                        match image_dset_to_image(&item.image).and_then(|img| aug.augment(&img)) {
+                            Ok(img_aug) => convert_image_to_tensor::<B>(&img_aug, device),
+                            Err(e) => {
+                                eprintln!("[augment warning] {}", e);
+                                convert_dset_item_to_tensor::<B>(&item.image, device)
+                            }
+                        }
                     }
                     _ => convert_dset_item_to_tensor::<B>(&item.image, device),
                 }
@@ -99,14 +106,12 @@ fn convert_dset_item_to_tensor<B: Backend>(
     item: &Vec<PixelDepth>,
     device: &B::Device,
 ) -> Tensor<B, 4> {
+    // (Kept infallible for performance; non-u8 entries are skipped as before.)
     let pixels: Vec<f32> = item
         .iter()
-        .filter_map(|p| {
-            if let PixelDepth::U8(val) = p {
-                Some(*val as f32 / 255.0) // Normalize to [0, 1]
-            } else {
-                None
-            }
+        .filter_map(|p| match p {
+            PixelDepth::U8(val) => Some(*val as f32 / 255.0),
+            _ => None,
         })
         .collect();
     Tensor::<B, 3>::from_data(
@@ -174,27 +179,35 @@ fn convert_dset_annotation_to_label<B: Backend>(
     }
 }
 
-pub fn load_dataset() -> ImageFolderDataset {
-    ImageFolderDataset::new_classification("data/processed").unwrap()
+pub fn load_dataset() -> Result<ImageFolderDataset> {
+    let path = "data/processed";
+    if !std::path::Path::new(path).exists() {
+        bail!("Dataset directory not found: {path}");
+    }
+    ImageFolderDataset::new_classification(path)
+        .wrap_err_with(|| format!("Failed to load ImageFolderDataset at {path}"))
 }
 
 pub fn load_train_val_datasets(
     seed: u64,
     train_ratio: f32,
-) -> (
+) -> Result<(
     PartialDataset<ShuffledDataset<ImageFolderDataset, ImageDatasetItem>, ImageDatasetItem>,
     PartialDataset<ShuffledDataset<ImageFolderDataset, ImageDatasetItem>, ImageDatasetItem>,
-) {
-    let dataset = load_dataset();
+)> {
+    let dataset = load_dataset()?;
     let len = dataset.len();
+    if len == 0 {
+        bail!("Loaded dataset is empty");
+    }
     let train_size = ((len as f32) * train_ratio).round() as usize;
     let train_size = train_size.clamp(1, len - 1);
 
     let shuffled_for_train: ShuffledDataset<_, _> = ShuffledDataset::with_seed(dataset, seed);
-    let shuffled_for_val: ShuffledDataset<_, _> = ShuffledDataset::with_seed(load_dataset(), seed);
+    let shuffled_for_val: ShuffledDataset<_, _> = ShuffledDataset::with_seed(load_dataset()?, seed);
 
     let train = PartialDataset::new(shuffled_for_train, 0, train_size);
     let val = PartialDataset::new(shuffled_for_val, train_size, len);
 
-    (train, val)
+    Ok((train, val))
 }

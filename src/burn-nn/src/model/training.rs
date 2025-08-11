@@ -1,6 +1,7 @@
 use crate::{
-    data::{load_train_val_datasets, ImageBatch, ImageBatcher},
-    model::{metrics::accuracy, resnet::ResNet50, valid::validate_epoch},
+    data::{ImageBatch, ImageBatcher, load_train_val_datasets},
+    model::{resnet::ResNet50, valid::validate_epoch},
+    utils::metrics::accuracy,
 };
 use burn::{
     data::dataloader::{DataLoader, DataLoaderBuilder},
@@ -11,9 +12,10 @@ use burn::{
     record::CompactRecorder,
     tensor::backend::AutodiffBackend,
     train::{
-        metric::LossMetric, ClassificationOutput, LearnerBuilder, TrainOutput, TrainStep, ValidStep,
+        ClassificationOutput, LearnerBuilder, TrainOutput, TrainStep, ValidStep, metric::LossMetric,
     },
 };
+use color_eyre::{Result, eyre::WrapErr};
 
 impl<B: Backend> ResNet50<B> {
     pub fn forward_classification(
@@ -88,18 +90,19 @@ pub fn train<B: AutodiffBackend>(
     model: ResNet50<B>,
     config: TrainingConfig,
     device: B::Device,
-) {
+) -> Result<()> {
     create_artifact_dir(artifact_dir);
     config
         .save(format!("{artifact_dir}/config.json"))
-        .expect("Config should be saved successfully");
+        .wrap_err("Failed to save training config JSON")?;
 
     B::seed(config.seed);
 
     let batcher_train = ImageBatcher::train_default();
     let batcher_eval = ImageBatcher::eval();
 
-    let (train_ds, val_ds) = load_train_val_datasets(config.seed, 0.8);
+    let (train_ds, val_ds) =
+        load_train_val_datasets(config.seed, 0.8).wrap_err("Failed to load / split datasets")?;
 
     let dataloader_train = DataLoaderBuilder::new(batcher_train.clone())
         .batch_size(config.batch_size)
@@ -123,17 +126,17 @@ pub fn train<B: AutodiffBackend>(
         .build(model, config.optimizer.init(), config.learning_rate);
 
     let model_trained = learner.fit(dataloader_train, dataloader_test);
-
     model_trained
         .save_file(format!("{artifact_dir}/model"), &CompactRecorder::new())
-        .expect("Trained model should be saved successfully");
+        .wrap_err("Failed to save trained model checkpoint")?;
+    Ok(())
 }
 
 pub fn train_head_only<B: AutodiffBackend>(
     artifact_dir: &str,
     mut model: ResNet50<B>,
     device: B::Device,
-) {
+) -> Result<()> {
     create_artifact_dir(artifact_dir);
 
     let optim_config = AdamWConfig::new().with_weight_decay(1.0e-2);
@@ -141,12 +144,13 @@ pub fn train_head_only<B: AutodiffBackend>(
     B::seed(config.seed);
     config
         .save(format!("{artifact_dir}/config.json"))
-        .expect("Config should be saved successfully");
+        .wrap_err("Failed to save head-only config JSON")?;
 
     let batcher_train = ImageBatcher::train_default();
     let batcher_eval = ImageBatcher::eval();
 
-    let (train_ds, val_ds) = load_train_val_datasets(config.seed, 0.8);
+    let (train_ds, val_ds) =
+        load_train_val_datasets(config.seed, 0.8).wrap_err("Failed to load / split datasets")?;
 
     let dataloader_train = DataLoaderBuilder::new(batcher_train.clone())
         .batch_size(config.batch_size)
@@ -210,7 +214,8 @@ pub fn train_head_only<B: AutodiffBackend>(
 
         let model_valid = model.valid();
 
-        let (val_loss, val_acc) = validate_epoch(&model_valid, &dataloader_val);
+        let (val_loss, val_acc) =
+            validate_epoch(&model_valid, &dataloader_val).wrap_err("Validation epoch failed")?;
 
         println!(
             "Epoch {}: Train Loss {:.4}, Train Acc {:.2}% | Val Loss {:.4}, Val Acc {:.2}%",
@@ -232,7 +237,7 @@ pub fn train_head_only<B: AutodiffBackend>(
             model
                 .clone()
                 .save_file(format!("{artifact_dir}/best_model"), &recorder)
-                .expect("Best model should be saved successfully");
+                .wrap_err("Failed saving best_model checkpoint")?;
         } else {
             patience_counter += 1;
             if patience_counter >= config.early_stopping_patience {
@@ -250,7 +255,7 @@ pub fn train_head_only<B: AutodiffBackend>(
             model
                 .clone()
                 .save_file(format!("{artifact_dir}/model_epoch_{epoch}"), &recorder)
-                .expect("Model should be saved successfully");
+                .wrap_err_with(|| format!("Failed saving checkpoint for epoch {epoch}"))?;
         }
     }
 
@@ -258,4 +263,5 @@ pub fn train_head_only<B: AutodiffBackend>(
         "Training completed. Best validation accuracy: {:.2}%",
         best_val_accuracy
     );
+    Ok(())
 }

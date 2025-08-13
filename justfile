@@ -20,3 +20,6 @@ run-piper:
 # clean up unused images
 clean-images:
     docker image prune
+
+run-changelog:
+    git-cliff -o CHANGELOG.md

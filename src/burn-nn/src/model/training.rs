@@ -87,6 +87,7 @@ fn create_artifact_dir(artifact_dir: &str) {
 
 pub fn train<B: AutodiffBackend>(
     artifact_dir: &str,
+    dataset_root: &str,
     model: ResNet50<B>,
     config: TrainingConfig,
     device: B::Device,
@@ -101,8 +102,8 @@ pub fn train<B: AutodiffBackend>(
     let batcher_train = ImageBatcher::train_default();
     let batcher_eval = ImageBatcher::eval();
 
-    let (train_ds, val_ds) =
-        load_train_val_datasets(config.seed, 0.8).wrap_err("Failed to load / split datasets")?;
+    let (train_ds, val_ds) = load_train_val_datasets(dataset_root, config.seed, 0.8)
+        .wrap_err("Failed to load / split datasets")?;
 
     let dataloader_train = DataLoaderBuilder::new(batcher_train.clone())
         .batch_size(config.batch_size)
@@ -134,6 +135,7 @@ pub fn train<B: AutodiffBackend>(
 
 pub fn train_head_only<B: AutodiffBackend>(
     artifact_dir: &str,
+    dataset_root: &str,
     mut model: ResNet50<B>,
     device: B::Device,
 ) -> Result<()> {
@@ -149,8 +151,8 @@ pub fn train_head_only<B: AutodiffBackend>(
     let batcher_train = ImageBatcher::train_default();
     let batcher_eval = ImageBatcher::eval();
 
-    let (train_ds, val_ds) =
-        load_train_val_datasets(config.seed, 0.8).wrap_err("Failed to load / split datasets")?;
+    let (train_ds, val_ds) = load_train_val_datasets(dataset_root, config.seed, 0.8)
+        .wrap_err("Failed to load / split datasets")?;
 
     let dataloader_train = DataLoaderBuilder::new(batcher_train.clone())
         .batch_size(config.batch_size)

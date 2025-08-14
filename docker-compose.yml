@@ -62,7 +62,7 @@ services:
     build:
       context: .
       dockerfile: docker/nn-worker.Dockerfile
-    command: nvidia-smi
+    image: piper-nn-worker:latest
     deploy:
       resources:
         reservations:

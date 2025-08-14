@@ -10,6 +10,10 @@ build-base-base:
 build-nn-worker:
     docker buildx bake nn-worker
 
+# Clean build a specific service without cache
+build-clean NAME:
+    docker buildx bake --pull --no-cache {{NAME}}
+
 # Start an interactive shell in a new container for a service
 shell NAME:
     docker compose run --rm --service-ports {{NAME}} /bin/bash

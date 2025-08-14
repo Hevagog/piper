@@ -2,25 +2,47 @@ mod common;
 mod data;
 mod model;
 mod utils;
-use std::path::Path;
-
 use crate::model::resnet::{ResNet50, ResNet50Record};
-
+use color_eyre::{
+    eyre::{bail, WrapErr},
+    Result,
+};
+use std::{error::Error, io, path::Path};
 use {
     burn::{
-        backend::{Autodiff, cuda::Cuda, cuda::CudaDevice},
+        backend::{cuda::Cuda, cuda::CudaDevice, Autodiff},
         data::dataloader::DataLoaderBuilder,
         record::{FullPrecisionSettings, Recorder},
     },
     burn_import::pytorch::{LoadArgs, PyTorchFileRecorder},
 };
-const DATASET_PATH: &str = "data/resnet50-weights.pth";
 
-fn main() {
-    let weights_path = Path::new(DATASET_PATH);
+struct AppPaths {
+    weights_path: String,
+    dataset_root: String,
+    artifact_dir: String,
+}
+
+impl AppPaths {
+    fn from_env() -> Self {
+        Self {
+            weights_path: std::env::var("WEIGHTS_PATH")
+                .unwrap_or_else(|_| "/data/resnet50-weights.pth".into()),
+            dataset_root: std::env::var("DATASET_ROOT")
+                .unwrap_or_else(|_| "/data/processed".into()),
+            artifact_dir: std::env::var("ARTIFACT_DIR")
+                .unwrap_or_else(|_| "/tmp/resnet50_artifacts".into()),
+        }
+    }
+}
+
+fn training_loop(paths: &AppPaths) -> Result<()> {
+    let weights_path = Path::new(&paths.weights_path);
     if !weights_path.exists() {
-        eprintln!("Error: resnet50-weights.pth file not found in the data folder.");
-        std::process::exit(1);
+        bail!(
+            "Missing weights file: {:?}. Expected pretrained PyTorch ResNet50 weights.",
+            weights_path
+        );
     }
 
     type Backend = Cuda<f32, i32>;
@@ -29,7 +51,7 @@ fn main() {
 
     let model = ResNet50::<AutodiffBackend>::resnet50(30, &device);
 
-    let load_args = LoadArgs::new(DATASET_PATH.into())
+    let load_args = LoadArgs::new(paths.weights_path.clone().into())
         // Map conv1 parameters
         .with_key_remap(r"^conv1\.(.+)$", "conv1.$1")
         // Map top-level batchnorm 'bn1' to 'norm1'
@@ -57,28 +79,26 @@ fn main() {
         // Map fully connected layer
         .with_key_remap(r"^fc\.(.+)$", "fc.$1");
 
-    // Initialize the PyTorch file recorder and load weights
     let record: ResNet50Record<AutodiffBackend> =
         PyTorchFileRecorder::<FullPrecisionSettings>::default()
             .load(load_args, &device)
-            .expect("Should decode state successfully");
+            .wrap_err("Failed to load / map PyTorch ResNet50 state into Burn record")?;
 
     let model = model.load(record, &device, 30);
 
-    print!("Model loaded successfully.\n");
-    let artifact_dir = "/tmp/resnet50_artifacts";
-    model::training::train_head_only(artifact_dir, model, device);
+    println!("Model loaded successfully.");
+    model::training::train_head_only(&paths.artifact_dir, &paths.dataset_root, model, device)
+        .wrap_err("Head-only training failed")?;
 
-    let batcher = data::ImageBatcher::default();
-    // let dataloader_train: std::sync::Arc<
-    //     dyn burn::data::dataloader::DataLoader<Backend, data::ImageBatch<Backend>>,
-    // > = DataLoaderBuilder::new(batcher.clone())
-    //     .batch_size(256)
-    //     .shuffle(1)
-    //     .num_workers(2)
-    //     .build(data::load_dataset());
+    // Example (commented) future usage:
+    // let ds = data::load_dataset(&paths.dataset_root)?;
+    Ok(())
+}
 
-    // model.forward(images);
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let paths = AppPaths::from_env();
+    training_loop(&paths)?;
+    Ok(())
 }
 
 // fn sample() {

@@ -27,3 +27,7 @@ clean-images:
 
 run-changelog:
     git-cliff -o CHANGELOG.md
+
+# Sync uv dev dependencies
+sync-dev:
+    uv sync --extra dev

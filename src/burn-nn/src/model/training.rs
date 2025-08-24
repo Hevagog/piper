@@ -7,7 +7,7 @@ use burn::{
     data::dataloader::{DataLoader, DataLoaderBuilder},
     module::AutodiffModule,
     nn::loss::{CrossEntropyLoss, CrossEntropyLossConfig},
-    optim::{AdamWConfig, GradientsParams, Optimizer},
+    optim::{AdamWConfig, GradientsAccumulator, GradientsParams, Optimizer},
     prelude::*,
     record::CompactRecorder,
     tensor::backend::AutodiffBackend,
@@ -54,7 +54,7 @@ pub struct TrainingConfig {
     #[config(default = 40)]
     pub num_epochs: usize,
 
-    #[config(default = 18)]
+    #[config(default = 16)]
     pub batch_size: usize,
 
     #[config(default = 14)]
@@ -77,6 +77,9 @@ pub struct TrainingConfig {
 
     #[config(default = 5)]
     pub early_stopping_patience: usize,
+
+    #[config(default = 8)]
+    pub gradient_accumulation_steps: usize,
 }
 
 fn create_artifact_dir(artifact_dir: &str) {
@@ -172,6 +175,7 @@ pub fn train_head_only<B: AutodiffBackend>(
     let mut best_val_accuracy = 0.0;
     let mut patience_counter = 0;
     let mut current_lr = config.learning_rate;
+    let acc_steps = config.gradient_accumulation_steps;
 
     println!(
         "Starting head-only training with {} epochs",
@@ -185,16 +189,27 @@ pub fn train_head_only<B: AutodiffBackend>(
         let mut total_accuracy = 0.0;
         let mut batch_count = 0;
 
+        let mut gradient_accumulator: GradientsAccumulator<ResNet50<B>> =
+            GradientsAccumulator::default();
+
         for (iteration, batch) in dataloader_train.iter().enumerate() {
             let output = model.forward_head_only(batch.images);
+
             let mut loss = CrossEntropyLoss::new(None, &device);
             loss.smoothing = Some(config.label_smoothing);
-            let loss = loss.forward(output.clone(), batch.labels.clone());
+            // normalizing loss to account for gradient accumulation
+            let loss = loss.forward(output.clone(), batch.labels.clone()) / (acc_steps as f32);
+
             let accuracy = accuracy(output.clone(), batch.labels.clone());
 
             let grads = loss.backward();
             let grads = GradientsParams::from_grads(grads, &model);
-            model = optim.step(current_lr, model.clone(), grads);
+            gradient_accumulator.accumulate(&model, grads);
+
+            if (iteration + 1) % acc_steps == 0 {
+                let grads_accumulated = gradient_accumulator.grads();
+                model = optim.step(current_lr, model.clone(), grads_accumulated);
+            }
 
             if iteration % 75 == 0 {
                 println!(
@@ -209,6 +224,11 @@ pub fn train_head_only<B: AutodiffBackend>(
             total_loss += loss.clone().into_scalar().elem::<f32>();
             total_accuracy += accuracy;
             batch_count += 1;
+        }
+
+        {
+            let grads_remaining = gradient_accumulator.grads();
+            model = optim.step(current_lr, model.clone(), grads_remaining);
         }
 
         let train_loss = total_loss / batch_count as f32;

@@ -1,21 +1,94 @@
 use crate::{
-    data::{ImageBatch, ImageBatcher, load_train_val_datasets},
-    model::{resnet::ResNet50, valid::validate_epoch},
-    utils::metrics::accuracy,
+    data::{
+        batch::{ImageBatch, ImageBatcher},
+        loader::load_train_val_datasets,
+    },
+    model::{
+        resnet::{ResNet50, ResNet50Record},
+        valid::validate_epoch,
+    },
+    utils::{app_paths::AppPaths, metrics::accuracy},
 };
+
 use burn::{
+    backend::{Autodiff, cuda::Cuda, cuda::CudaDevice},
     data::dataloader::{DataLoader, DataLoaderBuilder},
     module::AutodiffModule,
     nn::loss::{CrossEntropyLoss, CrossEntropyLossConfig},
     optim::{AdamWConfig, GradientsAccumulator, GradientsParams, Optimizer},
     prelude::*,
-    record::CompactRecorder,
+    record::{CompactRecorder, FullPrecisionSettings, Recorder},
     tensor::backend::AutodiffBackend,
     train::{
         ClassificationOutput, LearnerBuilder, TrainOutput, TrainStep, ValidStep, metric::LossMetric,
     },
 };
-use color_eyre::{Result, eyre::WrapErr};
+use burn_import::pytorch::{LoadArgs, PyTorchFileRecorder};
+use color_eyre::{
+    Result,
+    eyre::{WrapErr, bail},
+};
+use std::path::Path;
+
+pub fn training_loop(paths: &AppPaths) -> Result<()> {
+    let weights_path = Path::new(&paths.weights_path);
+    if !weights_path.exists() {
+        bail!(
+            "Missing weights file: {:?}. Expected pretrained PyTorch ResNet50 weights.",
+            weights_path
+        );
+    }
+
+    type Backend = Cuda<f32, i32>;
+    type AutodiffBackend = Autodiff<Backend>;
+    let device = CudaDevice::default();
+
+    let model = ResNet50::<AutodiffBackend>::resnet50(30, &device);
+
+    let load_args = LoadArgs::new(paths.weights_path.clone().into())
+        // Map conv1 parameters
+        .with_key_remap(r"^conv1\.(.+)$", "conv1.$1")
+        // Map top-level batchnorm 'bn1' to 'norm1'
+        .with_key_remap(r"^bn1\.(.+)$", "norm1.$1")
+        // Map layer blocks convolution parameters
+        .with_key_remap(
+            r"^layer([1-4])\.(\d+)\.conv([123])\.(.+)$",
+            "layer$1.blocks.$2.conv$3.$4",
+        )
+        // Map layer blocks batchnorm parameters
+        .with_key_remap(
+            r"^layer([1-4])\.(\d+)\.bn([123])\.(.+)$",
+            "layer$1.blocks.$2.norm$3.$4",
+        )
+        // Map downsample convolution in blocks
+        .with_key_remap(
+            r"^layer([1-4])\.(\d+)\.downsample\.0\.(.+)$",
+            "layer$1.blocks.$2.downsample.conv.$3",
+        )
+        // Map downsample batchnorm in blocks
+        .with_key_remap(
+            r"^layer([1-4])\.(\d+)\.downsample\.1\.(.+)$",
+            "layer$1.blocks.$2.downsample.norm.$3",
+        )
+        // Map fully connected layer
+        .with_key_remap(r"^fc\.(.+)$", "fc.$1");
+
+    let record: ResNet50Record<AutodiffBackend> =
+        PyTorchFileRecorder::<FullPrecisionSettings>::default()
+            .load(load_args, &device)
+            .wrap_err("Failed to load / map PyTorch ResNet50 state into Burn record")?;
+
+    let model = model.load(record, &device, 30);
+
+    println!("Model loaded successfully.");
+
+    train_head_only(&paths.artifact_dir, &paths.dataset_root, model, device)
+        .wrap_err("Head-only training failed")?;
+
+    // Example (commented) future usage:
+    // let ds = data::load_dataset(&paths.dataset_root)?;
+    Ok(())
+}
 
 impl<B: Backend> ResNet50<B> {
     pub fn forward_classification(
@@ -197,6 +270,7 @@ pub fn train_head_only<B: AutodiffBackend>(
 
             let mut loss = CrossEntropyLoss::new(None, &device);
             loss.smoothing = Some(config.label_smoothing);
+
             // normalizing loss to account for gradient accumulation
             let loss = loss.forward(output.clone(), batch.labels.clone()) / (acc_steps as f32);
 
@@ -271,7 +345,6 @@ pub fn train_head_only<B: AutodiffBackend>(
             }
         }
 
-        // Checkpoint save
         if epoch % 5 == 0 {
             let recorder = CompactRecorder::new();
             model

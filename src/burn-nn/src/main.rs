@@ -5,6 +5,7 @@ mod utils;
 use color_eyre::Result;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    colog::init();
     let paths = utils::app_paths::AppPaths::from_env();
     model::training::training_loop(&paths)?;
 

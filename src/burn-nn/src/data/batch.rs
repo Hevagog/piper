@@ -11,7 +11,7 @@ use burn::{
     prelude::*,
     tensor::Tensor,
 };
-
+use log::warn;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BatcherMode {
     Train,
@@ -65,7 +65,7 @@ impl<B: Backend> Batcher<B, ImageDatasetItem, ImageBatch<B>> for ImageBatcher {
                         match image_dset_to_image(&item.image).and_then(|img| aug.augment(&img)) {
                             Ok(img_aug) => convert_image_to_tensor::<B>(&img_aug, device),
                             Err(e) => {
-                                eprintln!("[augment warning] {}", e);
+                                warn!("[augment warning] {}", e);
                                 convert_dset_item_to_tensor::<B>(&item.image, device)
                             }
                         }

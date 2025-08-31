@@ -1,4 +1,4 @@
-use crate::{data::ImageBatch, model::resnet::ResNet50, utils::metrics::accuracy};
+use crate::{data::batch::ImageBatch, model::resnet::ResNet50, utils::metrics::accuracy};
 use burn::{data::dataloader::DataLoader, nn::loss::CrossEntropyLossConfig, prelude::*};
 use color_eyre::Result;
 

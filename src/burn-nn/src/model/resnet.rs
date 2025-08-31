@@ -1,11 +1,15 @@
-use crate::model::blocks::LayerBlock;
+use crate::{data::batch::ImageBatch, model::blocks::LayerBlock};
+
 use burn::{
     nn::{
         BatchNorm, BatchNormConfig, Linear, LinearConfig, PaddingConfig2d, Relu,
         conv::{Conv2d, Conv2dConfig},
+        loss::CrossEntropyLossConfig,
         pool::{AdaptiveAvgPool2d, AdaptiveAvgPool2dConfig, MaxPool2d, MaxPool2dConfig},
     },
     prelude::*,
+    tensor::backend::AutodiffBackend,
+    train::{ClassificationOutput, TrainOutput, TrainStep, ValidStep},
 };
 
 #[derive(Module, Debug)]
@@ -105,5 +109,35 @@ impl<B: Backend> ResNet50<B> {
     pub fn forward_head_only(&self, input: Tensor<B, 4>) -> Tensor<B, 2> {
         let x = self.base_forward(input).detach();
         self.fc.forward(x)
+    }
+}
+
+impl<B: Backend> ResNet50<B> {
+    pub fn forward_classification(
+        &self,
+        images: Tensor<B, 4>,
+        targets: Tensor<B, 1, Int>,
+    ) -> ClassificationOutput<B> {
+        let output = self.forward(images);
+        let loss = CrossEntropyLossConfig::new()
+            .with_smoothing(Some(0.1))
+            .init(&output.device())
+            .forward(output.clone(), targets.clone());
+
+        ClassificationOutput::new(loss, output, targets)
+    }
+}
+
+impl<B: AutodiffBackend> TrainStep<ImageBatch<B>, ClassificationOutput<B>> for ResNet50<B> {
+    fn step(&self, batch: ImageBatch<B>) -> TrainOutput<ClassificationOutput<B>> {
+        let item = self.forward_classification(batch.images, batch.labels);
+
+        TrainOutput::new(self, item.loss.backward(), item)
+    }
+}
+
+impl<B: Backend> ValidStep<ImageBatch<B>, ClassificationOutput<B>> for ResNet50<B> {
+    fn step(&self, batch: ImageBatch<B>) -> ClassificationOutput<B> {
+        self.forward_classification(batch.images, batch.labels)
     }
 }

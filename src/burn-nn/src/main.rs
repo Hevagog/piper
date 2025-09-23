@@ -3,9 +3,12 @@ mod data;
 mod model;
 mod utils;
 use color_eyre::Result;
+use log::{info, warn};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     colog::init();
+    info!("Starting nn-worker...");
+    warn!("Wow so good, much neural, very network!");
     let paths = utils::app_paths::AppPaths::from_env();
     model::training::training_loop(&paths)?;
 

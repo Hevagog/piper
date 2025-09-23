@@ -37,6 +37,6 @@ RUN useradd --create-home --shell /bin/bash app
 
 COPY --from=builder /app/target/release/burn-nn /usr/local/bin/burn-nn
 
-USER app
+USER root
 WORKDIR /home/app
 CMD ["burn-nn"]

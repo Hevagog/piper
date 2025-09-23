@@ -11,7 +11,7 @@ use crate::{
 };
 
 use burn::{
-    backend::{Autodiff, cuda::Cuda, cuda::CudaDevice},
+    backend::{cuda::Cuda, cuda::CudaDevice, Autodiff},
     data::dataloader::{DataLoader, DataLoaderBuilder},
     module::AutodiffModule,
     nn::loss::CrossEntropyLoss,
@@ -19,12 +19,12 @@ use burn::{
     prelude::*,
     record::{CompactRecorder, FullPrecisionSettings, Recorder},
     tensor::backend::AutodiffBackend,
-    train::{LearnerBuilder, metric::LossMetric},
+    train::{metric::LossMetric, LearnerBuilder},
 };
 use burn_import::pytorch::{LoadArgs, PyTorchFileRecorder};
 use color_eyre::{
+    eyre::{bail, WrapErr},
     Result,
-    eyre::{WrapErr, bail},
 };
 use log::{info, warn};
 use std::path::Path;
@@ -127,6 +127,21 @@ fn create_artifact_dir(artifact_dir: &str) {
     // Remove existing artifacts before to get an accurate learner summary
     std::fs::remove_dir_all(artifact_dir).ok();
     std::fs::create_dir_all(artifact_dir).ok();
+}
+
+fn move_file_cross_fs(src: &Path, dest: &Path) -> std::io::Result<()> {
+    if let Some(parent) = dest.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    match std::fs::rename(src, dest) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::CrossesDevices => {
+            std::fs::copy(src, dest)?;
+            std::fs::remove_file(src)?;
+            Ok(())
+        }
+        Err(e) => Err(e),
+    }
 }
 
 pub fn train<B: AutodiffBackend>(
@@ -325,7 +340,7 @@ pub fn train_head_only<B: AutodiffBackend>(
                         None => model_final_dir.join("best_model.mpk"),
                     };
 
-                    match std::fs::rename(&src, &dest) {
+                    match move_file_cross_fs(&src, &dest) {
                         Ok(_) => info!("Best model moved to {:?}", dest),
                         Err(e) => warn!("Failed to move best model: {:?}", e),
                     };
@@ -365,7 +380,7 @@ pub fn train_head_only<B: AutodiffBackend>(
         None => model_final_dir.join("best_model.mpk"),
     };
 
-    match std::fs::rename(&src, &dest) {
+    match move_file_cross_fs(&src, &dest) {
         Ok(_) => info!("Best model moved to {:?}", dest),
         Err(e) => warn!("Failed to move best model: {:?}", e),
     };

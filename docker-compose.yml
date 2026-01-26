@@ -40,39 +40,6 @@ services:
     volumes:
       - piper-data:/data
 
-  orchestrator:
-    build:
-      context: .
-      dockerfile: docker/orchestrator.Dockerfile
-    image: piper-orchestrator:latest
-    depends_on:
-      - base
-      - luigi-scheduler
-    networks:
-      - bridged-default
-    environment:
-      - PYTHONUNBUFFERED=1
-    env_file:
-      - .env
-      - config/config.env
-    volumes:
-      - piper-data:/data
-    
-  nn-worker:
-    build:
-      context: .
-      dockerfile: docker/nn-worker.Dockerfile
-    image: piper-nn-worker:latest
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
-    volumes:
-      - piper-data:/data
-
 networks:
   bridged-default:
     driver: bridge

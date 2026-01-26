@@ -32,9 +32,6 @@ all = [
     "piper[kaggle,huggingface,spark,luigi,webdataset]",
 ]
 
-[project.scripts]
-piper = "piper.main:main"
-
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

@@ -1,14 +1,15 @@
+default: help
+
+@help:
+	just --list
+
 # Build bake commands for Docker
 build-bake-all: 
     docker buildx prune  && docker buildx bake 
 
 # Build bake commands for base
-build-base-base:
+build-base:
     docker buildx bake base
-
-# Build bake commands for nn-worker
-build-nn-worker:
-    docker buildx bake nn-worker
 
 # Clean build a specific service without cache
 build-clean NAME:

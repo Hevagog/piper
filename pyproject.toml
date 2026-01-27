@@ -1,9 +1,9 @@
 [project]
 name = "piper"
-version = "1.1.0"
+version = "1.1.1"
 description = "Distributed image processing pipeline for machine learning datasets"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.12"
 
 dependencies = [
     "opencv-python>=4.10.0",
@@ -41,14 +41,14 @@ packages = ["piper"]
 
 [tool.ruff]
 line-length = 88
-target-version = "py313"
+target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP"]
 ignore = ["E501"]
 
 [tool.mypy]
-python_version = "3.13"
+python_version = "3.12"
 warn_return_any = true
 warn_unused_ignores = true
 ignore_missing_imports = true

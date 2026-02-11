@@ -190,7 +190,13 @@ class Pipeline:
         )
 
         # Download/prepare data
-        raw_path = self._source.download(self.config.raw_data_dir)
+        try:
+            raw_path = self._source.download(self.config.raw_data_dir)
+        except OSError:
+            self._logger.error(
+                "Make sure to authenticate your kaggle account using piper.login() function!"
+            )
+            raise RuntimeError
         self._logger.info(f"Data prepared at: {raw_path}")
 
         # Process images

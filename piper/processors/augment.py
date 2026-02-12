@@ -3,7 +3,7 @@ from random import Random
 import cv2
 import numpy as np
 
-from piper.utils.models import AugmentationType
+from piper.utils import AugmentationType
 
 
 class Augmentor:
@@ -64,6 +64,21 @@ class Augmentor:
                     img,
                     alpha=self.rng.uniform(0.8, 1.2),
                     beta=self.rng.randint(-10, 10),
+                )
+            case AugmentationType.RANDOM_CROP:
+                h, w = img.shape[:2]
+                return self.random_crop(
+                    img,
+                    crop_width=int(w * 0.8),
+                    crop_height=int(h * 0.8),
+                    rng=self.rng,
+                )
+            case AugmentationType.CENTER_CROP:
+                h, w = img.shape[:2]
+                return self.center_crop(
+                    img,
+                    crop_width=int(w * 0.8),
+                    crop_height=int(h * 0.8),
                 )
             case _:
                 return img
